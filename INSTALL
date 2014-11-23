@@ -35,4 +35,20 @@ Start script is run.sh
 
 3. DB stat collector agent
 
+os:linux kennel 2.6.x or above.
+PosrgreSQL 9.2 or above (if you use 9.1, change rtpgst_agent/rtpgstat_agent.py)
+Python 2.4.x or above versions.
+Start rtpgst_agent.py
+
+
+4. Web client
+
+This is a simple html.
+Just call any web server.
+
+
+5. Firewall open
+Agent -> stat save DB : 5432
+Web browser -> web socket server : 8080
+Web socket server -> stat save DB : 5432
 
