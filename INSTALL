@@ -1,0 +1,12 @@
+to install bellow modules.
+
+clinet 
+  - psycopg2
+
+websocket server
+  - python mod_pywebsocket
+  - psycopg2
+  
+html5 client 
+  - jquery
+  - Flotr2
