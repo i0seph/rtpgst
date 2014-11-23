@@ -188,7 +188,7 @@ function onClose(evt){
 }
 
 function websocket_init(){
-     websocket = new WebSocket("ws://database.sarang.net:8080/rtpgst");
+     websocket = new WebSocket("ws://localhost:8080/rtpgst");
      websocket.onopen = function(evt) { onOpen(evt) };
      websocket.onclose = function(evt) { onClose(evt) };
      websocket.onerror = function(evt) { onError(evt) };
