@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang='ko'>
+<head>
+<meta charset="utf-8" />
+<title>RealTime PostgreSQL stats charts</title>
+<style type='text/css'>
+.chartdiv {
+	border: 0px solid black;
+        width : 640px;
+        height: 184px;
+	margin-left: 20px;
+	margin-top: 20px;
+}
+.chartarea {
+	border: 0px solid black;
+	float: left;
+}
+
+.chartdiv_legend {
+	margin-left: 50px;
+}
+</style>
+<script type="text/javascript" src="jquery-1.9.1.min.js"></script>
+<script type="text/javascript" src="Flotr2/flotr2.min.js"></script>
+<script language="javascript" type="text/javascript">
+var ws_reqcmd = {};
+var websocket;
+var onmessage_count = 0;
+var is_stop = false;
+var last_listen_ctime = 0;
+var checkinterval = 0;
+var max_chart_data_rows = 600;
+var chart_data = {
+	'oscpu':[],
+	'osio':[],
+	'dbsession':[],
+	'dbwriter':[],
+	'dbdml':[],
+	'dbhitrate':[]};
+var chart_title = {
+	'oscpu':'CPU & Memory',
+	'osio':'Disk & Net IO',
+	'dbsession':'DB Sessions',
+	'dbwriter':'DB Buffer Writer',
+	'dbdml':'DML',
+	'dbhitrate':'Buffer Hit Rate'};
+var legend_title = {
+	'oscpu':['CPU','Memory']
+	,'osio':['Net In','Net Out', 'Disk Read', 'Disk Write']
+	,'dbsession':['Active','Total']
+	,'dbwriter':['Checkpoint','bgwriter', 'session']
+	,'dbdml':['insert','update','delete']
+	,'dbhitrate':['Hitrate']
+}
+function drawChart(chart_name){
+  var graph = Flotr.draw($("#chart" + chart_name)[0], chart_data[chart_name], {
+    lines: { lineWidth: 1 },
+    shadowSize: 0,
+    title: chart_title[chart_name],
+    xaxis: {
+      mode: 'time',
+      timeMode: 'local',
+      minorTickFreq: 4
+    },
+    mouse : {
+      track: true,
+      relative: false,
+      position: 'nw',
+      lineColor: '#000000',
+      trackDecimals: 2,
+      trackFormatter  : function (o) { var d = new Date; d.setTime(o.x); return Flotr.Date.format(d,'%H:%M:%S','local') +'<br/>' + o.y; }
+    },
+    legend: {
+      show: true,
+      container: $("#chart" + chart_name + "_legend")[0],
+      noColumns: 4
+    }
+  });
+}
+
+function chart_init (check_interval) {
+  var start, x;
+
+  start = new Date().getTime();
+  start -= (check_interval * max_chart_data_rows);
+
+  $.map(legend_title, function(v, k) {
+    // init chart data
+    for (var i = 0; i < v.length; i++){
+       var d1 = new Array();
+       for (var j = 0; j < max_chart_data_rows; j++) {
+          x = start + (j* check_interval);
+          d1.push([x, null]);
+       }
+       chart_data[k].push({data:d1,label:legend_title[k][i]});
+    }
+    drawChart(k);
+  });
+}
+
+function onOpen(evt){
+	if(urlParams.agent_id != "") {
+		ws_reqcmd['cmd'] = "startchart";
+		ws_reqcmd['agent_id'] = urlParams.agent_id;
+		websocket.send(JSON.stringify(ws_reqcmd));
+	}
+}
+
+function update_stat_array(ctime,statrow, j){
+            chart_data['oscpu'][0].data[j] = [ctime,(statrow.osinfo[1] == null) ? null : parseFloat(statrow.osinfo[1])];
+            chart_data['oscpu'][1].data[j] = [ctime,(statrow.osinfo[0] == null) ? null : parseFloat(statrow.osinfo[0])];
+
+            // os io
+            for (var i=0; i< 4; i++){
+                chart_data['osio'][i].data[j] = [ctime,(statrow.osinfo[i+2] == null) ? null : parseFloat(statrow.osinfo[i+2])];
+            }
+
+            // db session
+            for (var i=0; i< 2; i++){
+                chart_data['dbsession'][i].data[j] = [ctime,(statrow.session[i] == null) ? null : parseFloat(statrow.session[i])];
+            }
+
+            // db background writer
+            var bgwritercolumn = [4,5,7];
+            for (var i=0; i< 3; i++){
+                chart_data['dbwriter'][i].data[j] = [ctime, (statrow.bgwriter[bgwritercolumn[i]] == null) ? null : parseFloat(statrow.bgwriter[bgwritercolumn[i]])];
+            }
+
+            // db dml
+            for (var i=0; i< 3; i++){
+                chart_data['dbdml'][i].data[j] = [ctime, (statrow.database[i+6] == null) ? null : parseFloat(statrow.database[i+6])];
+            }
+
+            // buffer cache rate
+            for (var i=0; i< 1; i++){
+		if(statrow.database[3] == null){
+			chart_data['dbhitrate'][i].data[j] = [ctime,null];
+		}
+		else{
+			if( parseFloat(statrow.database[3]) + parseFloat(statrow.database[2]) < 1)
+				chart_data['dbhitrate'][i].data[j] = [ctime,0];
+			else
+				chart_data['dbhitrate'][i].data[j] = [ctime,(parseFloat(statrow.database[3]) / (parseFloat(statrow.database[3]) + parseFloat(statrow.database[2]))) * 100];
+		}
+            }
+}
+
+function onMessage(evt) {
+    var response_data = jQuery.parseJSON(evt.data);
+
+    if(response_data['c'] == "ai"){
+	    // agent info
+	// set title
+	$("#page_title_node").html("[" + response_data['d'][0] + "]");
+	// set check interval
+	checkinterval = parseFloat(response_data['d'][1]);
+	chart_init(checkinterval);
+	setInterval("mainLoop()", 200);
+    }
+    else if(response_data['c'] == "sp"){
+	    // begin repared data
+	    last_listen_ctime = response_data['t'];
+	    update_stat_array(response_data['t']*1000,response_data['d'], onmessage_count);
+	    onmessage_count++;
+    }
+    else if(response_data['c'] == "ep"){
+	    // end repared data
+	    $("#debugdiv").html((new Date(Number(last_listen_ctime) * 1000)).toLocaleString());
+	    $.map(legend_title, function(v, k) { drawChart(k); });
+    }
+    else if(response_data['c'] == "cd"){
+	    // current data
+	    last_listen_ctime = response_data['t'];
+	    $("#debugdiv").html((new Date(Number(response_data['t']) * 1000)).toLocaleString());
+            update_stat_array(response_data['t']*1000,response_data['d'],max_chart_data_rows-1);
+    }
+    else if(response_data['c'] == "er"){
+	// error
+	$("#debugdiv").css('color','red');
+	$("#debugdiv").html('웹소켓 서버 오류 메시지: ' + response_data['d']);
+    }
+}
+
+function onClose(evt){
+	if(! is_stop) console.log("close");
+	$("#debugdiv").css('color','red');
+	$("#debugdiv").html("웹소켓 서버와 통신 할 수 없습니다.");
+}
+
+function websocket_init(){
+     websocket = new WebSocket("ws://database.sarang.net:8080/rtpgst");
+     websocket.onopen = function(evt) { onOpen(evt) };
+     websocket.onclose = function(evt) { onClose(evt) };
+     websocket.onerror = function(evt) { onError(evt) };
+     websocket.onmessage = function(evt) { onMessage(evt) };
+}
+
+function onError(evt){
+	console.log(evt);
+	$("#debugdiv").css('color','red');
+	$("#debugdiv").html("웹소켓 서버와 통신 할 수 없습니다.");
+}
+
+var urlParams;
+var current_localtime = 0;
+
+function addNullData(ctime){
+  // pop last data
+  // push new null data
+  // draw chart
+
+  $.map(legend_title, function(v, k) {
+    for (var i = 0; i < v.length; i++){
+       chart_data[k][i].data.shift();
+       chart_data[k][i].data.push([ctime,null]);
+    }
+    drawChart(k);
+  });
+}
+
+var timediff = 0;
+
+function mainLoop(){
+	var new_localtime = Math.floor((new Date()).getTime() / 1000);
+	if(current_localtime != new_localtime){
+		timediff++;
+		current_localtime = new_localtime;
+		// set new null data and remove last data every check interval and draw chart
+		if(timediff == (checkinterval / 1000)){
+			timediff = 0;
+			// set null new data
+			addNullData(current_localtime*1000);
+			// notify too old data
+			if((current_localtime - last_listen_ctime) > (2*(checkinterval/1000))){
+				$("#debugdiv").css('color','red');
+				if(websocket.readyState == 1){
+					$("#debugdiv").html((new Date(Number(last_listen_ctime) * 1000)).toLocaleString() + " (통계자료 수집기가 실행되고 있는지 확인 하세요.)");
+				}
+				else{
+					$("#debugdiv").html((new Date(Number(last_listen_ctime) * 1000)).toLocaleString() + "<br/>(웹소켓 서버가 실행되고 있는지 확인하고 이 페이지를 다시 열어보세요.)");
+				}
+			}
+			else{
+				$("#debugdiv").css('color','black');
+			}
+		}
+	}
+}
+
+$(document).ready(function() {
+	var match,
+	    pl     = /\+/g,  // Regex for replacing addition symbol with a space
+	    search = /([^&=]+)=?([^&]*)/g,
+	    decode = function (s) { return decodeURIComponent(s.replace(pl, " ")); },
+	    query  = window.location.search.substring(1);
+	urlParams = {};
+	while (match = search.exec(query))
+		urlParams[decode(match[1])] = decode(match[2]);
+
+	if(query == ""){
+		urlParams['agent_id'] = "";
+	}
+
+	if(urlParams['agent_id'] != "" && urlParams['agent_id'].replace(/[0-9]+/g,"")==""){
+		websocket_init();
+	}
+	else {
+		$("#debugdiv").css('color', 'red');
+		$("#debugdiv").html("에이전트를 선택 하세요");
+	}
+});
+
+
+
+
+
+window.onbeforeunload = function(e) {
+	is_stop = true;
+	ws_reqcmd['cmd'] = "stopchart";
+	websocket.send(JSON.stringify(ws_reqcmd));
+}
+
+</script>
+</head>
+<body>
+	<div id='page_title_div'>RealTime PostgreSQL stats for <span id='page_title_node'>[]</span></div>
+<div>Last Modified: <span id='debugdiv'></span></div>
+<div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartoscpu'></div>
+		<div class='chartdiv_legend' id='chartoscpu_legend'></div>
+	</div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartosio'></div>
+		<div class='chartdiv_legend' id='chartosio_legend'></div>
+	</div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartdbsession'></div>
+		<div class='chartdiv_legend' id='chartdbsession_legend'></div>
+	</div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartdbwriter'></div>
+		<div class='chartdiv_legend' id='chartdbwriter_legend'></div>
+	</div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartdbdml'></div>
+		<div class='chartdiv_legend' id='chartdbdml_legend'></div>
+	</div>
+	<div class='chartarea'>
+		<div class='chartdiv' id='chartdbhitrate'></div>
+		<div class='chartdiv_legend' id='chartdbhitrate_legend'></div>
+	</div>
+</div>
+</body>
+</html>
