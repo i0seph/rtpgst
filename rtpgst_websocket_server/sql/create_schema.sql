@@ -1,0 +1,4 @@
+CREATE SCHEMA dw15min;
+ALTER SCHEMA dw15min OWNER TO statagent;
+CREATE SCHEMA dw1min;
+ALTER SCHEMA dw1min OWNER TO statagent;
