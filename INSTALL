@@ -1,6 +1,8 @@
-to install bellow modules.
+to install, bellow modules are installed before.
 
-clinet 
+* Requirements 
+
+DB stats collector agent  
   - psycopg2
 
 websocket server
@@ -10,3 +12,27 @@ websocket server
 html5 client 
   - jquery
   - Flotr2
+
+
+* Howto start
+
+
+1. DB Setting
+
+This schema uses json type, 
+So need PostgreSQL 9.3.x.
+
+Make a role 'statagent' as normal db user.
+Comment as that user, run scripts in rtpgst_websocket_server/sql/ 
+
+
+2. Websocket server start
+
+Python 2.6.x or above version need. (2.4.x, 3.x versions couldn't mod_websocket.)
+Check db connection string in .py files.
+Start script is run.sh
+
+
+3. DB stat collector agent
+
+
